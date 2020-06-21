@@ -1,0 +1,23 @@
+# An example of ClusterConfig object with custom VPC IPv4 CIDR,
+# and auto-allocated IPv6 CIDRs for all subnets; also without
+# any nodegroups:
+---
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: skcc07715
+  region: ap-northeast-2
+  version: "1.16"
+
+vpc:
+  cidr: 100.64.0.0/21
+  clusterEndpoints:
+    publicAccess: true
+    privateAccess: true
+
+nodeGroups: []
+managedNodeGroups: []
+
+availabilityZones: ["ap-northeast-2a", "ap-northeast-2b", "ap-northeast-2c"]
+
