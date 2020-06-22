@@ -280,14 +280,13 @@ kubectl apply -f 1.ClusteRoleBinding.yaml
 # 2. (웹사이트) gitlab.ffptest.com 접속해서 신규 계정 생성 및 restapi project 생성
 
 # 3. (bastion) 샘플 app 소스 경로의 파일을 gitlab에 push
-cd 06.APP_CICD/02.dev
-mv restapi restapi.bak
-git clone http://gitlab.ffptest.com/kukubabo/restapi.git
-cp -Rp restapi.bak/* restapi/
-cd restapi
-git add *
-git commit -m "add all file"
-git push 
+cd 06.APP_CICD/restapi
+
+git init
+git remote add origin http://gitlab.ffptest.com/kukubabo/restapi.git
+git add .
+git commit -m "test"
+git push -u origin master
 
 # 4. Jenkis pipeline 생성 ( jenkins 계정 : admin / alskfl12~! )
 # a) 'new item' 생성
