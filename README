@@ -52,12 +52,7 @@ kubectl get node -lrole=worker | grep -v ^NAME | awk '{print $1}' | while read n
 eksctl delete nodegroup -f 3.create-nodegroup-worker.yaml --approve
 
 # 2. 128.0.0.0/24 대역 subnet 구성 관련 자원 삭제
-# . eniconfig 삭제
-kubectl delete eniconfig ap-northeast-2a ap-northeast-2b ap-northeast-2c
-
-# . (웹콘솔) 라우팅 테이블에서 128.0.0.0/16 대역 subnet 연결 삭제
-
-# . (웹콘솔) 128.0.0.0/16 대역 subnet 삭제
+./4.delete.subcidr.sh
 
 # 3. cluster 삭제
 eksctl delete cluster -f 1.create-cluster.yaml
