@@ -21,6 +21,7 @@ nodeGroups:
   - name: worker-node
     tags:
       nodegroup-role: worker
+      managed: false
     labels:
       role: worker
     instanceType: t3.medium

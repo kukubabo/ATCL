@@ -21,6 +21,7 @@ managedNodeGroups:
   - name: worker-node-mng
     tags:
       nodegroup-role: worker
+      managed: true
     labels:
       role: worker
     instanceType: t3.medium
