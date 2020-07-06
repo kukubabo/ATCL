@@ -8,17 +8,17 @@ kind: ClusterConfig
 metadata:
   name: skcc07715
   region: ap-northeast-2
-  version: "1.16"
+  version: "1.15"
 
 vpc:
-  cidr: 100.64.0.0/21
+  cidr: 100.64.24.0/21
   clusterEndpoints:
     publicAccess: true
     privateAccess: true
 
 nodeGroups: []
 managedNodeGroups:
-  - name: worker-node
+  - name: worker-node-mng
     tags:
       nodegroup-role: worker
     labels:
