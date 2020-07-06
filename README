@@ -36,8 +36,11 @@ eksctl create cluster -f 1.create-cluster.yaml
 #   - 작업경로 : 01.SET-EKS-ENV
 ################################################
 
-# create nodegroup
-eksctl create nodegroup -f 3.create-nodegroup-worker.yaml
+# create nodegroup ############ managed nodegroup 
+eksctl create nodegroup -f 3.create-nodegroup-worker.managednodegroup.yaml
+# create nodegroup ############ nodegroup ( node max-pods 설정 가능 )
+eksctl create nodegroup -f 3.create-nodegroup-worker.nodegroup.yaml
+
 
 # label node worker
 kubectl get node -lrole=worker | grep -v ^NAME | awk '{print $1}' | while read name; do kubectl label node  $name node-role.kubernetes.io/worker=true; done
