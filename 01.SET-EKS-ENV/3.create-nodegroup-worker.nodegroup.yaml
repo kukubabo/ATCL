@@ -8,7 +8,7 @@ kind: ClusterConfig
 metadata:
   name: skcc07715
   region: ap-northeast-2
-  version: "1.15"
+  version: "1.16"
 
 vpc:
   cidr: 100.64.24.0/21
@@ -20,11 +20,11 @@ managedNodeGroups: []
 nodeGroups:
   - name: worker-node
     tags:
-      nodegroup-role: worker
-      managed: false
+      nodegroup-role: "worker"
+      managed: "false"
     labels:
       role: worker
-    instanceType: t3.medium
+    instanceType: t3.xlarge   #t3.medium
     privateNetworking: true
     minSize: 2
     desiredCapacity: 3
@@ -32,6 +32,8 @@ nodeGroups:
     volumeSize: 20
     ssh:
       allow: true
-    maxPodsPerNode: 12
+    maxPodsPerNode: 44
+    instanceName: worker-node    # EC2 Name Tag : worker-node
+    instancePrefix: skcc07715    # EC2 Name Tag : skcc07715-skcc07715-test
 
 availabilityZones: ["ap-northeast-2a", "ap-northeast-2b", "ap-northeast-2c"]
