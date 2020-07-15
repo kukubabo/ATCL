@@ -328,150 +328,64 @@ git push -u origin master
 
 
 #######################################################################################
-# istio 구성
+# Prometheus / Grafana 구성
 #######################################################################################
 
 ################################################
-# [ 1. istio 설치 ]
-#   - 작업경로 : 07.ISTIO
-#   - 참고URL : https://www.eksworkshop.com/advanced/310_servicemesh_with_istio/install/
+# [ 1. metric-server 설치 - 정상적으로 작동 안하는 것 같아서 확인 필요 ]
+#   - 작업경로 : 07.MONITORING
+#   - 참고 URL : https://docs.aws.amazon.com/ko_kr/eks/latest/userguide/metrics-server.html
 ################################################
 
-# 설치 버전 설정 ( 1.5.2 )
-echo 'export ISTIO_VERSION="1.5.2"' >> ${HOME}/.bash_profile
-source ${HOME}/.bash_profile
-
-# 설치 파일 다운로드
-curl -L https://istio.io/downloadIstio | sh -
-
-# istioctl 복사 ( to /usr/local/bin/istioctl )
-cd istio-${ISTIO_VERSION}
-sudo cp -v bin/istioctl /usr/local/bin/
-
-# istioctl 버전 확인
-istioctl version --remote=false
-
-# istio 설치 ( profile=demo )
-istioctl manifest apply --set profile=demo
-
-# 설치확인
-kubectl -n istio-system get svc
-NAME                        TYPE           CLUSTER-IP       EXTERNAL-IP               PORT(S)                            AGE
-grafana                     ClusterIP      10.100.183.102   <none>                    3000/TCP                           58m
-istio-egressgateway         ClusterIP      10.100.179.248   <none>                    80/TCP,443/TCP,15443/TCP           58m
-istio-ingressgateway        LoadBalancer   10.100.138.139   a...2.elb.amazonaws.com   15020:31905/TCP,80:32464/TCP,44... 58m
-istio-pilot                 ClusterIP      10.100.227.105   <none>                    15010/TCP,15011/TCP,15012/TCP,8... 58m
-istiod                      ClusterIP      10.100.89.14     <none>                    15012/TCP,443/TCP                  58m
-jaeger-agent                ClusterIP      None             <none>                    5775/UDP,6831/UDP,6832/UDP         58m
-jaeger-collector            ClusterIP      10.100.158.185   <none>                    14267/TCP,14268/TCP,14250/TCP      58m
-jaeger-collector-headless   ClusterIP      None             <none>                    14250/TCP                          58m
-jaeger-query                ClusterIP      10.100.21.18     <none>                    16686/TCP                          58m
-kiali                       ClusterIP      10.100.29.228    <none>                    20001/TCP                          58m
-prometheus                  ClusterIP      10.100.226.30    <none>                    9090/TCP                           58m
-tracing                     ClusterIP      10.100.24.83     <none>                    80/TCP                             58m
-zipkin                      ClusterIP      10.100.247.224   <none>                    9411/TCP                           58m
-
-kubectl -n istio-system get pods
-NAME                                    READY   STATUS    RESTARTS   AGE
-grafana-556b649566-2gb5d                1/1     Running   0          59m
-istio-egressgateway-65949b978b-vbmg4    1/1     Running   0          59m
-istio-ingressgateway-7c76987989-2g9vn   1/1     Running   0          59m
-istio-tracing-7cf5f46848-s5pcb          1/1     Running   0          59m
-istiod-5bb7dddbd8-n84hc                 1/1     Running   0          59m
-kiali-6d54b8ccbc-v8zgb                  1/1     Running   0          59m
-prometheus-b47d8c58c-bvmr5              2/2     Running   0          59m
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.3.6/components.yaml
 
 
 ################################################
-# [ 2. sample app 테스트 - bookinfo ]
-#   - 작업경로 : 07.ISTIO
-#   - 참고URL : https://www.eksworkshop.com/advanced/310_servicemesh_with_istio/deploy/
+# [ 2. prometheus 설치 ]
+#   - 작업경로 : 07.MONITORING
+#   - 참고 URL : https://www.eksworkshop.com/intermediate/240_monitoring/
 ################################################
+# namespace 생성
+kubectl create namespace prometheus
 
-# bookinfo namespace 생성
-kubectl create namespace bookinfo
+# prometheus 설치 ( w/helm )
+helm install prometheus stable/prometheus \
+    --namespace prometheus \
+    --set alertmanager.persistentVolume.storageClass="gp2",server.persistentVolume.storageClass="gp2"
 
-# bookinfo namespace에 label (istio-injection=enabled) 추가
-kubectl label namespace bookinfo istio-injection=enabled
-kubectl get ns bookinfo --show-labels
+# prometheus 접속용 ingress 생성
+kubectl apply -f ingress-prometheus.yaml
 
-# bookinfo app 배포
-kubectl -n bookinfo apply -f ./istio-${ISTIO_VERSION}/samples/bookinfo/platform/kube/bookinfo.yaml
-kubectl -n bookinfo get pod,svc
+# ingress controller nlb 주소 확인 - IP 정보 확인하고 local PC의 hosts 파일에 prometheus 정보 추가
+nslookup `kubectl -n infra get svc  nginx-ingress-external-controller -o json | jq -r '.status.loadBalancer.ingress[].hostname'` | grep ^Address | tail -1 | awk '{print $2}'
 
-# bookinfo istio gateway 생성
-kubectl -n bookinfo apply -f ./istio-${ISTIO_VERSION}/samples/bookinfo/networking/bookinfo-gateway.yaml
-
-# 접속 테스트
-# URL 정보 확인 ( istio gateway )
-export GATEWAY_URL=$(kubectl -n istio-system get service istio-ingressgateway -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
-echo "http://${GATEWAY_URL}/productpage"
+# ----- prometheus hosts set
+# 1.2.3.4 prometheus.ffptest.com
 
 
 ################################################
-# [ 3. istio 모니터링 - kiali]
-#   - 작업경로 : 07.ISTIO/ingress
+# [ 3. grafana 설치 ]
+#   - 작업경로 : 07.MONITORING
+#   - 참고 URL : https://www.eksworkshop.com/intermediate/240_monitoring/
 ################################################
+# namespace 생성
+kubectl create namespace grafana
 
-# kiali 접속 ingress 생성
-kubectl apply -f ingress-kiali.yaml
+# Install grafana ( grafana.yaml 은 위에 설치한 prometheus data를 grafana에서 사용하기 위한 연결 설정 )
+kubectl create namespace grafana
+helm install grafana stable/grafana \
+    --namespace grafana \
+    --set persistence.storageClassName="gp2" \
+    --set persistence.enabled=true \
+    --set adminPassword='alskfl12~!' \
+    --values grafana.yaml
 
-# ingress controller svc DNS 정보 확인
-nslookup `kubectl -n infra get svc nginx-ingress-external-controller | grep -v ^NAME | awk '{print $4}'`
+# grafana 접속용 ingress 생성
+kubectl apply -f ingress-grafana.yaml
 
-# hosts 파일 수정
-52.79.246.196 kiali.ffptest.com
+# ingress controller nlb 주소 확인 - IP 정보 확인하고 local PC의 hosts 파일에 grafana 정보 추가
+nslookup `kubectl -n infra get svc  nginx-ingress-external-controller -o json | jq -r '.status.loadBalancer.ingress[].hostname'` | grep ^Address | tail -1 | awk '{print $2}'
 
-# kiali 접속
-http://kiali.ffptest.com/kiali
-ID/PW : admin/admin
+# ----- grafana hosts set
+# 1.2.3.4 grafana.ffptest.com
 
-
-################################################
-# [ 4. Traffic Management ]
-#   - 작업경로 : 07.ISTIO
-#   - 참고URL : https://www.eksworkshop.com/advanced/310_servicemesh_with_istio/routing/
-################################################
-
-# destinationrule 생성/확인
-kubectl -n bookinfo apply -f ./istio-${ISTIO_VERSION}/samples/bookinfo/networking/destination-rule-all.yaml
-
-kubectl -n bookinfo get DestinationRule
-
-# v1 으로 몰아주기 ( review )
-kubectl -n bookinfo apply -f ./istio-${ISTIO_VERSION}/samples/bookinfo/networking/virtual-service-all-v1.yaml
-
-# v2 로 몰아주기 ( jason 으로 로그인하면 review v2 노출 )
-kubectl -n bookinfo apply -f ./istio-${ISTIO_VERSION}/samples/bookinfo/networking/virtual-service-reviews-test-v2.yaml
-kubectl -n bookinfo get virtualservices reviews -o yaml
-
-# rating 에 7초 delay ( review가 rating 을 못 받아서 err )
-kubectl -n bookinfo apply -f ./istio-${ISTIO_VERSION}/samples/bookinfo/networking/virtual-service-ratings-test-delay.yaml
-kubectl -n bookinfo get virtualservice ratings -o yaml
-
-# rating 에 500 에러  ( review 에서 rating 부분 에러 처리 )
-kubectl -n bookinfo apply -f ./istio-${ISTIO_VERSION}/samples/bookinfo/networking/virtual-service-ratings-test-abort.yaml
-kubectl -n bookinfo get virtualservice ratings -o yaml
-
-# v1/v3 반반 ( v2로 안 감 )
-kubectl -n bookinfo apply -f ./istio-${ISTIO_VERSION}/samples/bookinfo/networking/virtual-service-all-v1.yaml
-kubectl -n bookinfo apply -f ./istio-${ISTIO_VERSION}/samples/bookinfo/networking/virtual-service-reviews-50-v3.yaml
-
-# v3 으로 100% 
-kubectl -n bookinfo apply -f ./istio-${ISTIO_VERSION}/samples/bookinfo/networking/virtual-service-reviews-v3.yaml
-
-################################################
-# [ 5. TEST 환경 & istio 삭제 ]
-#   - 작업경로 : 07.ISTIO
-#   - 참고URL : https://www.eksworkshop.com/advanced/310_servicemesh_with_istio/cleanup/
-################################################
-
-# bookinfo 삭제
-export NAMESPACE="bookinfo"
-./istio-${ISTIO_VERSION}/samples/bookinfo/platform/kube/cleanup.sh
-kubectl delete ns bookinfo
-
-# istio 삭제
-istioctl manifest generate --set profile=demo | kubectl delete -f -
-sed -i '/ISTIO_VERSION/d' ${HOME}/.bash_profile
-unset ISTIO_VERSION

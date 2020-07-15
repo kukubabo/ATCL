@@ -1,8 +1,8 @@
 apiVersion: extensions/v1beta1
 kind: Ingress
 metadata:
-  name: kiali
-  namespace: istio-system
+  name: prometheus
+  namespace: prometheus
   annotations:
     kubernetes.io/ingress.class: nginx
     #nginx.ingress.kubernetes.io/ssl-redirect: "false"
@@ -10,11 +10,11 @@ metadata:
     #nginx.ingress.kubernetes.io/rewrite-target: /
 spec:
   rules:
-  - host: kiali.ffptest.com
+  - host: prometheus.ffptest.com
     http:
       paths:
-        - path: /kiali
+        - path: /
           backend:
-            serviceName: kiali
-            servicePort: 20001
+            serviceName: prometheus-server
+            servicePort: 80
 

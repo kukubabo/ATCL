@@ -8,7 +8,7 @@ kind: ClusterConfig
 metadata:
   name: skcc07715
   region: ap-northeast-2
-  version: "1.15"
+  version: "1.16"
 
 vpc:
   cidr: 100.64.24.0/21
@@ -21,7 +21,7 @@ managedNodeGroups:
   - name: worker-node-mng
     tags:
       nodegroup-role: worker
-      managed: true
+      managed: "true"
     labels:
       role: worker
     instanceType: t3.medium

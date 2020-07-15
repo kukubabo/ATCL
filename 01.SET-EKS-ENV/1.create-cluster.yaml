@@ -8,7 +8,7 @@ kind: ClusterConfig
 metadata:
   name: skcc07715
   region: ap-northeast-2
-  version: "1.16"
+  version: "1.15"
 
 vpc:
   cidr: 100.64.24.0/21
