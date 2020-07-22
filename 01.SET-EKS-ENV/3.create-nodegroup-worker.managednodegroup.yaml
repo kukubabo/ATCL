@@ -11,7 +11,7 @@ metadata:
   version: "1.16"
 
 vpc:
-  cidr: 100.64.24.0/21
+  cidr: 100.64.24.0/24
   clusterEndpoints:
     publicAccess: true
     privateAccess: true
@@ -33,4 +33,4 @@ managedNodeGroups:
     ssh:
       allow: true
 
-availabilityZones: ["ap-northeast-2a", "ap-northeast-2b", "ap-northeast-2c"]
+availabilityZones: ["ap-northeast-2a", "ap-northeast-2c"]

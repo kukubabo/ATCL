@@ -5,7 +5,7 @@ INGRESS_SVC=`kubectl -n infra get svc  nginx-ingress-external-controller -o json
 perl -pi -e "s/SET_USER_HOST/$INGRESS_SVC/g" 01-7.ingress.yaml
 
 # create 'test' namespace
-kubectl create ns test
+#kubectl create ns test
 
 # create redis controller / service
 kubectl apply -f 01-1.redis-master-controller.json

@@ -8,10 +8,10 @@ kind: ClusterConfig
 metadata:
   name: skcc07715
   region: ap-northeast-2
-  version: "1.15"
+  version: "1.16"
 
 vpc:
-  cidr: 100.64.24.0/21
+  cidr: 100.64.24.0/24
   clusterEndpoints:
     publicAccess: true
     privateAccess: true
@@ -19,5 +19,5 @@ vpc:
 nodeGroups: []
 managedNodeGroups: []
 
-availabilityZones: ["ap-northeast-2a", "ap-northeast-2b", "ap-northeast-2c"]
+availabilityZones: ["ap-northeast-2a", "ap-northeast-2c"]
 

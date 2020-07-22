@@ -389,3 +389,109 @@ nslookup `kubectl -n infra get svc  nginx-ingress-external-controller -o json | 
 # ----- grafana hosts set
 # 1.2.3.4 grafana.ffptest.com
 
+
+
+#######################################################################################
+# Logging 구성 ( AWS Elasticsearch Service 사용 )
+#    - node ( fluentd ) ==> cloudwatch log ==> Elasticsearch service ==> kibana ( 로그 조회 )
+#######################################################################################
+
+################################################
+# [ 1. IAM ROLE 설정 ]
+#   - 작업경로 : 08.LOGGING
+################################################
+
+# NODE GROUP 에서 사용하는 IAM ROLE 정보 확인
+CLUSTER_NAME=skcc07715
+STACK_NAME=$(eksctl get nodegroup --cluster $CLUSTER_NAME -o json | jq -r '.[].StackName')
+ROLE_NAME=$(aws cloudformation describe-stack-resources --stack-name $STACK_NAME | jq -r '.StackResources[] | select(.ResourceType=="AWS::IAM::Role") | .PhysicalResourceId')
+echo "export ROLE_NAME=${ROLE_NAME}" | tee -a ~/.bash_profile
+
+# ROLE POLICY에 정책 추가
+cp iam_policy/k8s-logs-policy.json  ~/
+aws iam put-role-policy --role-name $ROLE_NAME --policy-name Logs-Policy-For-Worker --policy-document file://~/k8s-logs-policy.json
+rm ~/k8s-logs-policy.json
+
+# ROLE POLICY 확인
+aws iam get-role-policy --role-name $ROLE_NAME --policy-name Logs-Policy-For-Worker
+
+
+################################################
+# [ 2. AWS Elasticsearch Service 도메인 생성 ]
+#   - 작업경로 : 08.LOGGING
+#                - 도메인명 : kubernetes-logs
+#                - 버전     : 7.4 ( 2020/07/22 기준 최신버전 )
+#                - 스펙     : m5.large 인스턴스 2개로 Elasticsearch 구성(100Gb)
+################################################
+
+# Elasticsearch Service 생성(약 10분 소요)
+aws es create-elasticsearch-domain \
+  --domain-name kubernetes-logs \
+  --elasticsearch-version 7.4 \
+  --elasticsearch-cluster-config \
+  InstanceType=m5.large.elasticsearch,InstanceCount=2 \
+  --ebs-options EBSEnabled=true,VolumeType=standard,VolumeSize=100 \
+  --access-policies '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":["*"]},"Action":["es:*"],"Resource":"*"}]}'
+
+# 생성 확인 ( 결과 값이 false 가 나와야 정상 )
+aws es describe-elasticsearch-domain --domain-name kubernetes-logs --query 'DomainStatus.Processing'
+
+
+################################################
+# [ 3. Fluentd 설치 ( 각 노드에서 로그 데이터를 CloudWatch Log 로 쏴주는 역할 ) ]
+#   - 작업경로 : 08.LOGGING
+################################################
+
+# 리전 / EKS 클러스터명 수정
+vi fluentd/fluentd.yml 하여 199~202 line 내용 수정
+198:    env:
+199:      - name: REGION
+200:        value: us-west-2
+201:      - name: CLUSTER_NAME
+202:        value: eksworkshop-eksctl
+
+kubectl apply -f fluentd/fluentd.yml
+
+
+################################################
+# [ 4. CloudWatch 설정 - ES 로 보내는 설정인듯?? ]
+#   - 작업경로 : 08.LOGGING
+################################################
+
+# IAM 권한 부여???
+cp iam_policy/lambda.json  ~/
+aws iam create-role --role-name lambda_basic_execution --assume-role-policy-document file://~/lambda.json
+aws iam attach-role-policy --role-name lambda_basic_execution --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+rm ~/lambda.json
+
+# CloudWatch Log 웹콘솔에서
+1. 로그 그룹에서 /eks/클러스터명/containers 체크하고 "작업(Actions)"을 눌러 "Amazon Elasticsearch Service 측 스트림(Stream to Amazon ElasticSearch Service)" 선택
+2. 다음 화면에서 ElasticSearch Cluster명으로 "kubernetes-logs" 선택 / IAM role "lambda_basic_excution" 선택
+3. Log Format 을 "일반적 로그 형식(Common Log Format)" 으로 선택  =====> 로그 포멧이 좀 맞지 않아서 Customize 필요해 보임
+4. Review 후 Start Streaming
+
+# Kibana 설정
+1. Elasticsearch Service 웹콘솔에서 kubernetes-logs 정보 확인하면 Kibana 접속링크가 있음 ( 링크로 이동 )
+2. 왼쪽 아래에 "Management" 메뉴 이동 후 "Index Patterns" - "Create Index pattern" 클릭
+3. Index Pattern 에 "cwl-*" 입력 후 다음
+4. Time Fileter field name 에서 "@timestamp" 선택 후 "Create Index Pattern" 으로 생성
+5. 왼쪽 상단에 "Discover" 메뉴로 가면 로그 조회 가능
+
+
+
+
+
+
+
+
+################################################
+# [ 5. 제거하기 ]
+#   - 작업경로 : 08.LOGGING
+################################################
+kubectl delete -f ./fluentd/fluentd.yml
+aws es delete-elasticsearch-domain --domain-name kubernetes-logs
+aws logs delete-log-group --log-group-name /eks/skcc07715/containers
+
+역할 - NodeInstanceRole 에서 인라인 정책에 "Logs-Policy-For-Worker" 제거
+역할 - lambda_basic_execution 삭제
+
