@@ -372,7 +372,6 @@ nslookup `kubectl -n infra get svc  nginx-ingress-external-controller -o json | 
 kubectl create namespace grafana
 
 # Install grafana ( grafana.yaml 은 위에 설치한 prometheus data를 grafana에서 사용하기 위한 연결 설정 )
-kubectl create namespace grafana
 helm install grafana stable/grafana \
     --namespace grafana \
     --set persistence.storageClassName="gp2" \
@@ -397,101 +396,164 @@ nslookup `kubectl -n infra get svc  nginx-ingress-external-controller -o json | 
 #######################################################################################
 
 ################################################
-# [ 1. IAM ROLE 설정 ]
+# [ 1. 환경 변수 설정 ]
 #   - 작업경로 : 08.LOGGING
 ################################################
-
-# NODE GROUP 에서 사용하는 IAM ROLE 정보 확인
-CLUSTER_NAME=skcc07715
-STACK_NAME=$(eksctl get nodegroup --cluster $CLUSTER_NAME -o json | jq -r '.[].StackName')
-ROLE_NAME=$(aws cloudformation describe-stack-resources --stack-name $STACK_NAME | jq -r '.StackResources[] | select(.ResourceType=="AWS::IAM::Role") | .PhysicalResourceId')
-echo "export ROLE_NAME=${ROLE_NAME}" | tee -a ~/.bash_profile
-
-# ROLE POLICY에 정책 추가
-cp iam_policy/k8s-logs-policy.json  ~/
-aws iam put-role-policy --role-name $ROLE_NAME --policy-name Logs-Policy-For-Worker --policy-document file://~/k8s-logs-policy.json
-rm ~/k8s-logs-policy.json
-
-# ROLE POLICY 확인
-aws iam get-role-policy --role-name $ROLE_NAME --policy-name Logs-Policy-For-Worker
-
+export AWS_REGION=ap-northeast-2
+export ACCOUNT_ID=`aws sts get-caller-identity | jq -r .Account`
+export CLUSTER_NAME=skcc07715
+export ES_DOMAIN_NAME="eks-skcc07715-logging"
+export ES_VERSION="7.4"
+export ES_DOMAIN_USER="admin"
+export ES_DOMAIN_PASSWORD="Sktngm12#$"
 
 ################################################
-# [ 2. AWS Elasticsearch Service 도메인 생성 ]
+# [ 2. IAM 구성 ]
 #   - 작업경로 : 08.LOGGING
-#                - 도메인명 : kubernetes-logs
-#                - 버전     : 7.4 ( 2020/07/22 기준 최신버전 )
-#                - 스펙     : m5.large 인스턴스 2개로 Elasticsearch 구성(100Gb)
 ################################################
+# Enabling IAM roles for service accounts on your cluster
+eksctl utils associate-iam-oidc-provider \
+    --cluster ${CLUSTER_NAME} \
+    --approve
 
-# Elasticsearch Service 생성(약 10분 소요)
+# Creating an IAM role and policy for your service account
+mkdir ./logging/
+
+cat <<EoF > ./logging/fluent-bit-policy.json
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "es:ESHttp*"
+            ],
+            "Resource": "arn:aws:es:${AWS_REGION}:${ACCOUNT_ID}:domain/${ES_DOMAIN_NAME}"
+        }
+    ]
+}
+EoF
+
+cp ./logging/fluent-bit-policy.json ~/fluent-bit-policy.json
+aws iam create-policy   \
+  --policy-name fluent-bit-policy \
+  --policy-document file://~/fluent-bit-policy.json
+rm ~/fluent-bit-policy.json
+
+# Create an IAM role
+kubectl create namespace logging
+
+eksctl create iamserviceaccount \
+    --name fluent-bit \
+    --namespace logging \
+    --cluster ${CLUSTER_NAME} \
+    --attach-policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/fluent-bit-policy" \
+    --approve \
+    --override-existing-serviceaccounts
+
+# EKS 클러스터에 fluent bit 에 대한 ServiceAccount 생성 확인
+kubectl -n logging describe sa fluent-bit
+
+
+################################################
+# [ 3. Elasticsearch Service에 신규 Domain 생성 ]
+#   - 작업경로 : 08.LOGGING
+################################################
+# Create ES Domain
+curl -sS https://www.eksworkshop.com/intermediate/230_logging/deploy.files/es_domain.json \
+  | envsubst > ./logging/es_domain.json
+
+cp ./logging/es_domain.json ~/es_domain.json
 aws es create-elasticsearch-domain \
-  --domain-name kubernetes-logs \
-  --elasticsearch-version 7.4 \
-  --elasticsearch-cluster-config \
-  InstanceType=m5.large.elasticsearch,InstanceCount=2 \
-  --ebs-options EBSEnabled=true,VolumeType=standard,VolumeSize=100 \
-  --access-policies '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":["*"]},"Action":["es:*"],"Resource":"*"}]}'
+  --cli-input-json  file://~/es_domain.json
+rm ~/es_domain.json
 
-# 생성 확인 ( 결과 값이 false 가 나와야 정상 )
-aws es describe-elasticsearch-domain --domain-name kubernetes-logs --query 'DomainStatus.Processing'
+# ES 생성 확인 ( 약 12분 정도 걸림 )
+while true
+do
+  if [ $(aws es describe-elasticsearch-domain --domain-name ${ES_DOMAIN_NAME} --query 'DomainStatus.Processing') == "false" ]
+    then
+      tput setaf 2; echo "[`date +%H:%M:%S`] The Elasticsearch cluster is ready"   ; tput setaf 9
+	  break;
+    else
+      tput setaf 1; echo "[`date +%H:%M:%S`] The Elasticsearch cluster is NOT ready"; tput setaf 9
+  fi
+  sleep 10
+done
 
+# CONFIGURE ELASTICSEARCH ACCESS ( elasticsearch 에 접속할 수 있는 권한 부여 )
+export FLUENTBIT_ROLE=$(eksctl get iamserviceaccount --cluster ${CLUSTER_NAME} --namespace logging -o json | jq '.iam.serviceAccounts[].status.roleARN' -r)
+export ES_ENDPOINT=$(aws es describe-elasticsearch-domain --domain-name ${ES_DOMAIN_NAME} --output text --query "DomainStatus.Endpoint")
+
+curl -sS -u "${ES_DOMAIN_USER}:${ES_DOMAIN_PASSWORD}" \
+    -X PATCH \
+    https://${ES_ENDPOINT}/_opendistro/_security/api/rolesmapping/all_access?pretty \
+    -H 'Content-Type: application/json' \
+    -d'
+[
+  {
+    "op": "add", "path": "/backend_roles", "value": ["'${FLUENTBIT_ROLE}'"]
+  }
+]
+'
 
 ################################################
-# [ 3. Fluentd 설치 ( 각 노드에서 로그 데이터를 CloudWatch Log 로 쏴주는 역할 ) ]
+# [ 4. Fluent bit 설치 ]
 #   - 작업경로 : 08.LOGGING
 ################################################
+# 설치
+curl -Ss https://www.eksworkshop.com/intermediate/230_logging/deploy.files/fluentbit.yaml \
+    | envsubst > ./logging/fluentbit.yaml
 
-# 리전 / EKS 클러스터명 수정
-vi fluentd/fluentd.yml 하여 199~202 line 내용 수정
-198:    env:
-199:      - name: REGION
-200:        value: us-west-2
-201:      - name: CLUSTER_NAME
-202:        value: eksworkshop-eksctl
+kubectl apply -f ./logging/fluentbit.yaml
 
-kubectl apply -f fluentd/fluentd.yml
+# 확인 ( daemonset으로 각 노드에 1개씩 잘 뜨는지 확인 )
+kubectl -n logging get pod -o wide
 
 
 ################################################
-# [ 4. CloudWatch 설정 - ES 로 보내는 설정인듯?? ]
+# [ 5. Kibana 에서 Index Pattern 생성 및 사용 ]
 #   - 작업경로 : 08.LOGGING
 ################################################
+# KIBANA URL 확인 후 접속(웹브라우저)
+KIBANA_URL="https://$ES_ENDPOINT/_plugin/kibana"; echo $KIBANA_URL
 
-# IAM 권한 부여???
-cp iam_policy/lambda.json  ~/
-aws iam create-role --role-name lambda_basic_execution --assume-role-policy-document file://~/lambda.json
-aws iam attach-role-policy --role-name lambda_basic_execution --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-rm ~/lambda.json
-
-# CloudWatch Log 웹콘솔에서
-1. 로그 그룹에서 /eks/클러스터명/containers 체크하고 "작업(Actions)"을 눌러 "Amazon Elasticsearch Service 측 스트림(Stream to Amazon ElasticSearch Service)" 선택
-2. 다음 화면에서 ElasticSearch Cluster명으로 "kubernetes-logs" 선택 / IAM role "lambda_basic_excution" 선택
-3. Log Format 을 "일반적 로그 형식(Common Log Format)" 으로 선택  =====> 로그 포멧이 좀 맞지 않아서 Customize 필요해 보임
-4. Review 후 Start Streaming
-
-# Kibana 설정
-1. Elasticsearch Service 웹콘솔에서 kubernetes-logs 정보 확인하면 Kibana 접속링크가 있음 ( 링크로 이동 )
-2. 왼쪽 아래에 "Management" 메뉴 이동 후 "Index Patterns" - "Create Index pattern" 클릭
-3. Index Pattern 에 "cwl-*" 입력 후 다음
-4. Time Fileter field name 에서 "@timestamp" 선택 후 "Create Index Pattern" 으로 생성
-5. 왼쪽 상단에 "Discover" 메뉴로 가면 로그 조회 가능
-
-
-
-
-
-
+1. 메인화면에서 "Connect to your Elasticsearch index" 클릭
+2. Index pattern 에 "*fluent-bit*" 입력 후 "Next step" 클릭
+3. Time Filter field name 에 "@timestamp" 선택 후 "Create Index Pattern" 클릭
 
 
 ################################################
-# [ 5. 제거하기 ]
+# [ 9. Logging 구성 삭제 ]
 #   - 작업경로 : 08.LOGGING
 ################################################
-kubectl delete -f ./fluentd/fluentd.yml
-aws es delete-elasticsearch-domain --domain-name kubernetes-logs
-aws logs delete-log-group --log-group-name /eks/skcc07715/containers
+# 환경 변수 설정
+export AWS_REGION=ap-northeast-2
+export ACCOUNT_ID=`aws sts get-caller-identity | jq -r .Account`
+export CLUSTER_NAME=skcc07715
+export ES_DOMAIN_NAME="eks-skcc07715-logging"
+export ES_VERSION="7.4"
+export ES_DOMAIN_USER="admin"
+export ES_DOMAIN_PASSWORD="Sktngm12#$"
 
-역할 - NodeInstanceRole 에서 인라인 정책에 "Logs-Policy-For-Worker" 제거
-역할 - lambda_basic_execution 삭제
+# fluentbit 삭제
+kubectl delete -f ./logging/fluentbit.yaml
+
+# ES 삭제
+aws es delete-elasticsearch-domain \
+    --domain-name ${ES_DOMAIN_NAME}
+
+# iam service account 삭제
+eksctl delete iamserviceaccount \
+    --name fluent-bit \
+    --namespace logging \
+    --cluster ${CLUSTER_NAME} \
+    --wait
+
+# iam policy 삭제
+aws iam delete-policy   \
+  --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/fluent-bit-policy"
+
+# logging namespace 삭제
+kubectl delete namespace logging
 

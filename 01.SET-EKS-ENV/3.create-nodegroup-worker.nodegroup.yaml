@@ -26,9 +26,9 @@ nodeGroups:
       role: worker
     instanceType: t3.medium
     privateNetworking: true
-    minSize: 2
-    desiredCapacity: 3
-    maxSize: 4
+    minSize: 3
+    desiredCapacity: 4
+    maxSize: 5
     volumeSize: 20
     ssh:
       allow: true

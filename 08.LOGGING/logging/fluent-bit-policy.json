@@ -1,0 +1,12 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "es:ESHttp*"
+            ],
+            "Resource": "arn:aws:es:ap-northeast-2:847322629192:domain/eks-skcc07715-logging"
+        }
+    ]
+}

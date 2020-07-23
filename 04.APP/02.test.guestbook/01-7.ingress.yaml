@@ -10,7 +10,7 @@ metadata:
     #nginx.ingress.kubernetes.io/rewrite-target: /
 spec:
   rules:
-  - host: SET_USER_HOST
+  - host: aa10fc41900254598b809fce012f62ce-5b7d9fc55cda4a73.elb.ap-northeast-2.amazonaws.com
     http:
       paths:
         - path: /
