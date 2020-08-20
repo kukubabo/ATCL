@@ -1,5 +1,9 @@
 #######################################################################################
 # EKS Dual CIDR 클러스터 구성
+#   - 2020-08-20
+#     . Cluster / NodeGroup 생성 yaml 의 AZ를 ap-northeast-2a / ap-northeast-2c 2개만 사용하도록 수정
+#     . Nginx Ingress Controller의 Chart 버전 변경 ( 1.40.0 -> 1.41.1 ) : 1.41 버전으로 올리면서 기존 버전의 Docker 이미지 경로가 없어짐(ImgPullError발생)
+#     . Nginx Ingress Controller에 Elastic IP(고정 IP)를 사용해서 적용하는 방법 추가
 #######################################################################################
 
 ################################################
@@ -90,13 +94,21 @@ helm repo update
 kubectl create namespace infra
 
 # 2. deploy external service
-helm install nginx-ingress-external stable/nginx-ingress -f 1.values.yaml.nginx-ingress-1.40.0.external -n infra
+helm install nginx-ingress-external stable/nginx-ingress -f 1.values.yaml.nginx-ingress-1.41.1.external -n infra
 
 # 3.  deploy internal service
-helm install nginx-ingress-internal stable/nginx-ingress -f 2.values.yaml.nginx-ingress-1.40.0.internal -n infra
+helm install nginx-ingress-internal stable/nginx-ingress -f 2.values.yaml.nginx-ingress-1.41.1.internal -n infra
 
 # 4. 설치 확인 -  helm list
 helm list -n infra
+
+
+##### 참고.
+# ingress controller 에 고정IP(Elastic IP) 를 적용하려면...
+# 1) VPC의 Elastic IP(탄력적 IP) 메뉴에서 EKS에서 사용하는 AZ 개수만큼 Elastic IP를 생성하고 allocation ID(할당ID)값을 메모
+# 2) 1.values.yaml.nginx-ingress-1.41.1.external-eip 파일의 263 line 에서 allocation ID를 입력 (AZ 개수만큼 , 로 구분하여 입력)
+# 3) 1.values.yaml.nginx-ingress-1.41.1.external-eip 파일을 이용해서 ingress controller helm chart 배포
+#    - helm install nginx-ingress-external stable/nginx-ingress -f 1.values.yaml.nginx-ingress-1.41.1.external-eip -n infra
 
 
 #######################################################################################
