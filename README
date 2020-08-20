@@ -1,7 +1,7 @@
 #######################################################################################
 # EKS Dual CIDR 클러스터 구성
 #   - 2020-08-20
-#     . Cluster / NodeGroup 생성 yaml 의 AZ를 ap-northeast-2a / ap-northeast-2c 2개만 사용하도록 수정
+#     . Cluster / NodeGroup 생성 yaml 의 AZ를 ap-southeast-2a / ap-southeast-2c 2개만 사용하도록 수정
 #     . Nginx Ingress Controller의 Chart 버전 변경 ( 1.40.0 -> 1.41.1 ) : 1.41 버전으로 올리면서 기존 버전의 Docker 이미지 경로가 없어짐(ImgPullError발생)
 #     . Nginx Ingress Controller에 Elastic IP(고정 IP)를 사용해서 적용하는 방법 추가
 #######################################################################################
@@ -149,7 +149,7 @@ helm list -n infra
 
 1. EKS Cluster 의 VPC 를 사용하도록 생성
         => AZ 3개에 Main CIDR 대역으로 3개의 IP를 사용하게됨
-        => EFS의 DNS Name 확인 : fs-39c6f358.efs.ap-northeast-2.amazonaws.com
+        => EFS의 DNS Name 확인 : fs-39c6f358.efs.ap-southeast-2.amazonaws.com
  
 2. 생성시 - Security Group 변경 ( default로 하면 EFS Provisionner에서 EFS 볼륨 사용못하니, EKS Cluster의 Security Group을 지정해야함. )
         => sg-05abc447a66a03a33 - eks-cluster-sg-skcc05599-647076920
@@ -176,7 +176,7 @@ diff values.yaml.edit efs-provisioner/values.yaml
 >   deployEnv: dev
 38,40c38,40
 <   efsFileSystemId: fs-39c6f358
-<   awsRegion: ap-northeast-2
+<   awsRegion: ap-southeast-2
 <   path: /efs-pv
 ---
 >   efsFileSystemId: fs-12345678
@@ -308,7 +308,7 @@ git push -u origin master
 # c) 윗부분에서 "이 빌드는 매ㅐ변수가 있습니다." 체크
 #     - "매개변수 추가" 버튼 눌러서 "String Parameter" 4개 추가
 #       . GIT_URL          = http://gitlab-ce.infra.svc.cluster.local/[project명]/restapi.git
-#       . DOCKER_REGISTRY  = 847322629192.dkr.ecr.ap-northeast-2.amazonaws.com
+#       . DOCKER_REGISTRY  = 847322629192.dkr.ecr.ap-southeast-2.amazonaws.com
 #       . DOCKER_REPO      = restapi
 #       . DOCKER_TAG       = 1.0
 #     - "매개변수 추가" 버튼 눌러서 "Credentials Parameter" 1개 추가
@@ -400,6 +400,18 @@ nslookup `kubectl -n infra get svc  nginx-ingress-external-controller -o json | 
 # ----- grafana hosts set
 # 1.2.3.4 grafana.ffptest.com
 
+# Grafana 대시보드 생성(샘플)
+# 1. Cluster 모니터링
+#    - '+' 버튼 누르고 'Import' 메뉴 클릭
+#    - Grafana.com Dashboard 칸에 '3119' 입력하고 'Load' 버튼 클릭
+#    - data sources 에 'Prometheus' 선택하고 'Import' 버튼 클릭
+
+# 2. Pod 모니터링
+#    - '+' 버튼 누르고 'Import' 메뉴 클릭
+#    - Grafana.com Dashboard 칸에 '6417' 입력하고 'Load' 버튼 클릭
+#    - dashboard 이름을 'Kubernetes Pods Monitoring'으로 수정
+#    - data sources 에 'Prometheus' 선택하고 'Import' 버튼 클릭
+
 
 
 #######################################################################################
@@ -411,7 +423,7 @@ nslookup `kubectl -n infra get svc  nginx-ingress-external-controller -o json | 
 # [ 1. 환경 변수 설정 ]
 #   - 작업경로 : 08.LOGGING
 ################################################
-export AWS_REGION=ap-northeast-2
+export AWS_REGION=ap-southeast-2
 export ACCOUNT_ID=`aws sts get-caller-identity | jq -r .Account`
 export CLUSTER_NAME=skcc07715
 export ES_DOMAIN_NAME="eks-skcc07715-logging"
@@ -540,7 +552,7 @@ KIBANA_URL="https://$ES_ENDPOINT/_plugin/kibana"; echo $KIBANA_URL
 #   - 작업경로 : 08.LOGGING
 ################################################
 # 환경 변수 설정
-export AWS_REGION=ap-northeast-2
+export AWS_REGION=ap-southeast-2
 export ACCOUNT_ID=`aws sts get-caller-identity | jq -r .Account`
 export CLUSTER_NAME=skcc07715
 export ES_DOMAIN_NAME="eks-skcc07715-logging"
