@@ -337,9 +337,11 @@ curl -fsSLk -o get_helm.sh https://raw.githubusercontent.com/helm/helm/master/sc
 chmod 700 get_helm.sh
 ./get_helm.sh
 
-# 5-1-2. chart의 원격 repostory를 stable 이름으로 추가 (https://helm.sh/docs/intro/quickstart/)
-helm repo add stable https://kubernetes-charts.storage.googleapis.com/
-helm search repo stable
+# 5-1-2. chart의 원격 repostory를 추가(https://helm.sh/docs/intro/quickstart/)
+# - stable / ingress-nginx / grafana
+helm repo add stable        https://kubernetes-charts.storage.googleapis.com/
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+helm repo add grafana       https://grafana.github.io/helm-charts
 helm repo update  # Make sure we get the latest list of charts
 
 # 5-1-3. repoitory 목록 조회
@@ -354,7 +356,7 @@ helm repo list
 kubectl create namespace infra
 
 # 5-2-2. nginx-ingress chart local로 다운하기
-helm fetch stable/nginx-ingress
+helm fetch ingress-nginx/ingress-nginx
 
 # 5-2-3. deploy external service
 #     1. value.yaml 파일에 ingtress-controller 용 public nlb 설정. - non SSL
@@ -365,7 +367,7 @@ helm fetch stable/nginx-ingress
 #              service.beta.kubernetes.io/aws-load-balancer-type: nlb
 #            labels:
 #              app.kubernetes.io/creater: ksk
-#              helm.sh/char: ingress-nginx-1.41.2
+#              helm.sh/char: ingress-nginx-2.15.0
 #     ========================[ https SSL 적용 방법 ]=======================
 #     2. value.yaml 파일에 ingtress-controller 용 public nlb 설정. - SSL을 적용하려는 경우
 #        service:
@@ -379,11 +381,11 @@ helm fetch stable/nginx-ingress
 #              service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout: "3600"
 #            labels:
 #              app.kubernetes.io/creater: ksk
-#              helm.sh/char: ingress-nginx-1.41.2
+#              helm.sh/char: ingress-nginx-2.15.0
 #            targetPorts:
 #              http: http
 #              https: http      # NLB에서 SSL Offload를 하게 되면, 내부호출은 http로 변환 호출하도록 설정
-helm install nginx-ingress-external-ssl stable/nginx-ingress -f  values.yaml.nginx-ingress-1.41.2.external.ssl -n infra
+helm install nginx-ingress-external-ssl ingress-nginx/ingress-nginx -f values.yaml.ingress-nginx-2.15.0.external.ssl -n infra
 
 # 5-2-4.  deploy internal service
 #     1. value.yaml 파일에 ingtress-controller 용 public nlb 설정
@@ -395,7 +397,7 @@ helm install nginx-ingress-external-ssl stable/nginx-ingress -f  values.yaml.ngi
 #              service.beta.kubernetes.io/aws-load-balancer-internal: "true"
 #            labels:
 #              app.kubernetes.io/creater: ksk
-#              helm.sh/char: ingress-nginx-1.41.2
+#              helm.sh/char: ingress-nginx-2.15.0
 #     ========================[ https SSL 적용 방법 ]=======================
 #     2. value.yaml 파일에 ingtress-controller 용 public nlb 설정. - SSL을 적용하려는 경우
 #        service:
@@ -410,11 +412,11 @@ helm install nginx-ingress-external-ssl stable/nginx-ingress -f  values.yaml.ngi
 #              service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout: "3600"
 #            labels:
 #              app.kubernetes.io/creater: ksk
-#              helm.sh/char: ingress-nginx-1.41.2
+#              helm.sh/char: ingress-nginx-2.15.0
 #            targetPorts:
 #              http: http
 #              https: http      # NLB에서 SSL Offload를 하게 되면, 내부호출은 http로 변환 호출하도록 설정
-helm install nginx-ingress-internal-ssl stable/nginx-ingress -f  values.yaml.nginx-ingress-1.41.2.internal.ssl -n infra
+helm install nginx-ingress-internal-ssl ingress-nginx/ingress-nginx -f values.yaml.ingress-nginx-2.15.0.internal.ssl -n infra
 
 
 # 5-2-5. 설치 확인 -  helm list
@@ -483,7 +485,7 @@ EOF
 
 # 6-4. Create Ingress in Public Ingress Controller
 # 6-4-1. NLB hostname 
-export PUBLIC_INGRESS_SVC_HOSTNAME=`kubectl -n infra get svc nginx-ingress-external-ssl-controller -o json | jq -r '.status.loadBalancer.ingress[].hostname'`
+export PUBLIC_INGRESS_SVC_HOSTNAME=`kubectl -n infra get svc nginx-ingress-external-ssl-ingress-nginx-controller -o json | jq -r '.status.loadBalancer.ingress[].hostname'`
 echo "${PUBLIC_INGRESS_SVC_HOSTNAME}"
 cat <<EOF | kubectl apply -f -
 apiVersion: extensions/v1beta1
@@ -1730,7 +1732,7 @@ datasources:
 EOF
 
 # 15-3-3. Install grafana, values parameter 정보 assign ( datasource 정보 )
-helm install grafana stable/grafana \
+helm install grafana grafana/grafana \
     --namespace grafana \
     --set persistence.storageClassName="gp2" \
     --set persistence.enabled=true \
