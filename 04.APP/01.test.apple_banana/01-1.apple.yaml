@@ -4,6 +4,7 @@ metadata:
   name: apple-app
   namespace: test
   labels:
+    kubernetes.labels.app: apple
     app: apple
 spec:
   containers:
