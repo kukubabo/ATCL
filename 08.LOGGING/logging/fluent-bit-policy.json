@@ -6,7 +6,7 @@
             "Action": [
                 "es:ESHttp*"
             ],
-            "Resource": "arn:aws:es:ap-northeast-2:847322629192:domain/eks-skcc07715-logging"
+            "Resource": "arn:aws:es:ap-southeast-2:592806604814:domain/eks-skcc07715-logging"
         }
     ]
 }

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # setting ingress host
-INGRESS_SVC=`kubectl -n infra get svc nginx-ingress-external-controller -o json | jq -r '.status.loadBalancer.ingress[].hostname'`
+INGRESS_SVC=`kubectl -n infra get svc nginx-ingress-external-ingress-nginx-controller -o json | jq -r '.status.loadBalancer.ingress[].hostname'`
 perl -pi -e "s/SET_USER_HOST/$INGRESS_SVC/g" 01-3.ingress.yaml
 
 # create 'test' namespace

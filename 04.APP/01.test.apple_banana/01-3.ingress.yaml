@@ -10,7 +10,7 @@ metadata:
     #nginx.ingress.kubernetes.io/rewrite-target: /
 spec:
   rules:
-  - host: apple.ekstest.com
+  - host: SET_USER_HOST
     http:
       paths:
         - path: /apple

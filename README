@@ -9,12 +9,16 @@
 ################################################
 # [ 1. EKS 클러스터 생성 ]
 #   - 작업경로 : 01.SET-EKS-ENV
-#   - CIDR : 100.64.0.0/21
-#     . eksctl 자동 생성시 public subnet 3개, private subnet 3개라 /24 대역이 최소 6개 필요
-#     . /24 대역을 3개만 받게 된다면 subnet 먼저 생성하고 private subnet 지정해서 생성
+#   - CIDR : 100.64.24.0/24
+#     . eksctl 자동 생성시 public subnet 3개, private subnet 3개라 subnet 대역이 최소 6개 필요
+#     . /24 CIDR 할당 받은 경우 /26 CIDR 대역(IP 32개 사용 가능) 8개 구성 가능
+#     . 3개 subnet 으로 eks 구성시 약 90개 정도 노드 구성 가능
 ################################################
 
-eksctl create cluster -f 1.create-cluster.yaml
+eksctl create cluster -f 1.create-cluster.nodegroup.yaml --without-nodegroup
+
+# managednodegroup 으로 생성시
+# eksctl create cluster -f 1.create-cluster.managednodegroup.yaml --without-nodegroup
 
 
 ################################################
@@ -23,7 +27,7 @@ eksctl create cluster -f 1.create-cluster.yaml
 #   - CIDR : 128.0.0.0/16
 #   - 순서
 #     . VPC에 128.0.0.0/16 CIDR 추가
-#     . 128.0.64.0/18 | 128.0.128.0/18 | 128.0.192.0/18 로 3개 subnet 생성
+#     . 128.0.64.0/18 | 128.0.128.0/18 로 2개 subnet 생성
 #     . subnet에 TAG 생성
 #     . 각 AZ 별 PrivateRouteTable 에 신규 생성한 subnet 연결(associate)
 #     . aws-node daemonset 에 아래 옵션 추가
@@ -40,13 +44,13 @@ eksctl create cluster -f 1.create-cluster.yaml
 #   - 작업경로 : 01.SET-EKS-ENV
 ################################################
 
-# create nodegroup ############ managed nodegroup 
-eksctl create nodegroup -f 3.create-nodegroup-worker.managednodegroup.yaml
-# create nodegroup ############ nodegroup ( node max-pods 설정 가능 )
-eksctl create nodegroup -f 3.create-nodegroup-worker.nodegroup.yaml
+eksctl create nodegroup -f 1.create-cluster.nodegroup.yaml
+
+# managednodegroup 으로 생성시
+# eksctl create nodegroup -f 1.create-cluster.managednodegroup.yaml
 
 
-# label node worker
+# node 생성 후 node role 에 'worker' label 붙이기
 kubectl get node -lrole=worker | grep -v ^NAME | awk '{print $1}' | while read name; do kubectl label node  $name node-role.kubernetes.io/worker=true; done
 
 
@@ -56,13 +60,13 @@ kubectl get node -lrole=worker | grep -v ^NAME | awk '{print $1}' | while read n
 #   - Dual CIDR 수동 구성했던 자원을 지워야 클러스터를 정상 삭제할 수 있다.
 ################################################
 # 1. nodegroup 삭제
-eksctl delete nodegroup -f 3.create-nodegroup-worker.yaml --approve
+eksctl delete nodegroup -f 1.create-cluster.nodegroup.yaml --approve
 
 # 2. 128.0.0.0/24 대역 subnet 구성 관련 자원 삭제
 ./4.delete.subcidr.sh
 
 # 3. cluster 삭제
-eksctl delete cluster -f 1.create-cluster.yaml
+eksctl delete cluster -f 1.create-cluster.nodegroup.yaml
 
 
 #######################################################################################
@@ -80,35 +84,42 @@ chmod 700 get_helm.sh
 ./get_helm.sh
 
 # 2. stable repo 추가
-helm repo add stable https://kubernetes-charts.storage.googleapis.com/
-helm search repo stable
+# - stable        : 범용(prometheus, jenkins 등등)
+# - ingress-nginx : nginx controller 설치용
+# - grafana       : grafana 설치용
+helm repo add stable        https://kubernetes-charts.storage.googleapis.com/
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+helm repo add grafana       https://grafana.github.io/helm-charts
+
+helm repo list
+
 helm repo update
 
 
 ################################################
 # [ 2. Nginx ingress controller 설치 ]
 #   - 작업경로 : 03.NGINX-INGRESS-CONTROLLER
+#   - 2020-09-15 : helm chart의 repo 가 바뀜 ( stable/nginx-ingress => ingress-nginx/ingress-nginx )
 ################################################
 
 # 1. "infra" namespace 생성(infra 관리용)
 kubectl create namespace infra
 
-# 2. deploy external service
-helm install nginx-ingress-external stable/nginx-ingress -f 1.values.yaml.nginx-ingress-1.41.1.external -n infra
+# 2. deploy external service(외부망)
+helm install nginx-ingress-external ingress-nginx/ingress-nginx -f 1.values.yaml.ingress-nginx-2.15.0.external -n infra
 
-# 3.  deploy internal service
-helm install nginx-ingress-internal stable/nginx-ingress -f 2.values.yaml.nginx-ingress-1.41.1.internal -n infra
+
+# 3. deploy internal service(VPC 내부망)
+helm install nginx-ingress-internal ingress-nginx/ingress-nginx -f 2.values.yaml.ingress-nginx-2.15.0.internal -n infra
 
 # 4. 설치 확인 -  helm list
 helm list -n infra
 
-
-##### 참고.
-# ingress controller 에 고정IP(Elastic IP) 를 적용하려면...
+### 참고 - ingress controller 에 고정IP(Elastic IP) 를 적용
 # 1) VPC의 Elastic IP(탄력적 IP) 메뉴에서 EKS에서 사용하는 AZ 개수만큼 Elastic IP를 생성하고 allocation ID(할당ID)값을 메모
-# 2) 1.values.yaml.nginx-ingress-1.41.1.external-eip 파일의 263 line 에서 allocation ID를 입력 (AZ 개수만큼 , 로 구분하여 입력)
-# 3) 1.values.yaml.nginx-ingress-1.41.1.external-eip 파일을 이용해서 ingress controller helm chart 배포
-#    - helm install nginx-ingress-external stable/nginx-ingress -f 1.values.yaml.nginx-ingress-1.41.1.external-eip -n infra
+# 2) 1.values.yaml.ingress-nginx-2.15.0.external-eip 파일의 298 line 에서 allocation ID를 입력 (AZ 개수만큼 , 로 구분하여 입력)
+# 3) 1.values.yaml.ingress-nginx-2.15.0.external-eip 파일을 이용해서 ingress controller helm chart 배포
+#    $ helm install nginx-ingress-external-eip ingress-nginx/ingress-nginx -f 3.values.yaml.ingress-nginx-2.15.0.external-eip -n infra
 
 
 #######################################################################################
@@ -360,19 +371,27 @@ kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/down
 # namespace 생성
 kubectl create namespace prometheus
 
-# prometheus 설치 ( w/helm )
-helm install prometheus stable/prometheus \
-    --namespace prometheus \
-    --set alertmanager.persistentVolume.storageClass="gp2",server.persistentVolume.storageClass="gp2"
+# prometheus alertrule 생성
+# - configMap 미리 생성해두고 helm chart 설치시 참조하도록 values.yaml 수정
+kubectl apply -f configmap.prometheus-alerts.yaml
 
-# prometheus 접속용 ingress 생성
-kubectl apply -f ingress-prometheus.yaml
+# prometheus 설치 ( w/helm )
+# - values.yaml 수정사항
+#   . prometheus, alertmanager 에서 PVC 볼륨 사용을 위해 storageClass: "gp2" 설정
+#   . prometheus alertrule 적용(위에서 생성한 ConfigMap)하기 위해 extraConfigmapMounts 설정
+#   . alertmanager에서 slack 연동하기 위한 설정
+#     - 연동할 slack 채널의 webhook url 정보가 필요함
+helm install  prometheus stable/prometheus -f 1.values.yaml.prometheus-11.12.0 -n prometheus
+
+# prometheus / alertmanager 접속용 ingress 생성
+kubectl apply -f ingress.prometheus.yaml
+kubectl apply -f ingress.alertmanager.yaml
 
 # ingress controller nlb 주소 확인 - IP 정보 확인하고 local PC의 hosts 파일에 prometheus 정보 추가
-nslookup `kubectl -n infra get svc  nginx-ingress-external-controller -o json | jq -r '.status.loadBalancer.ingress[].hostname'` | grep ^Address | tail -1 | awk '{print $2}'
+nslookup `kubectl -n infra get svc nginx-ingress-external-ingress-nginx-controller -o json | jq -r '.status.loadBalancer.ingress[].hostname'` | grep ^Address | tail -1 | awk '{print $2}'
 
 # ----- prometheus hosts set
-# 1.2.3.4 prometheus.ffptest.com
+# 1.2.3.4 prometheus.tbiz-atcl.net
 
 
 ################################################
@@ -384,7 +403,7 @@ nslookup `kubectl -n infra get svc  nginx-ingress-external-controller -o json | 
 kubectl create namespace grafana
 
 # Install grafana ( grafana.yaml 은 위에 설치한 prometheus data를 grafana에서 사용하기 위한 연결 설정 )
-helm install grafana stable/grafana \
+helm install grafana grafana/grafana \
     --namespace grafana \
     --set persistence.storageClassName="gp2" \
     --set persistence.enabled=true \
@@ -392,13 +411,13 @@ helm install grafana stable/grafana \
     --values grafana.yaml
 
 # grafana 접속용 ingress 생성
-kubectl apply -f ingress-grafana.yaml
+kubectl apply -f ingress.grafana.yaml
 
 # ingress controller nlb 주소 확인 - IP 정보 확인하고 local PC의 hosts 파일에 grafana 정보 추가
-nslookup `kubectl -n infra get svc  nginx-ingress-external-controller -o json | jq -r '.status.loadBalancer.ingress[].hostname'` | grep ^Address | tail -1 | awk '{print $2}'
+nslookup `kubectl -n infra get svc nginx-ingress-external-ingress-nginx-controller -o json | jq -r '.status.loadBalancer.ingress[].hostname'` | grep ^Address | tail -1 | awk '{print $2}'
 
 # ----- grafana hosts set
-# 1.2.3.4 grafana.ffptest.com
+# 1.2.3.4 grafana.tbiz-atcl.net
 
 # Grafana 대시보드 생성(샘플)
 # 1. Cluster 모니터링
@@ -430,6 +449,8 @@ export ES_DOMAIN_NAME="eks-skcc07715-logging"
 export ES_VERSION="7.4"
 export ES_DOMAIN_USER="admin"
 export ES_DOMAIN_PASSWORD="Sktngm12#$"
+export FLUENT_BIT_POLICY="${CLUSTER_NAME}-fluent-bit-policy"
+
 
 ################################################
 # [ 2. IAM 구성 ]
@@ -460,7 +481,7 @@ EoF
 
 cp ./logging/fluent-bit-policy.json ~/fluent-bit-policy.json
 aws iam create-policy   \
-  --policy-name fluent-bit-policy \
+  --policy-name ${FLUENT_BIT_POLICY} \
   --policy-document file://~/fluent-bit-policy.json
 rm ~/fluent-bit-policy.json
 
@@ -471,7 +492,7 @@ eksctl create iamserviceaccount \
     --name fluent-bit \
     --namespace logging \
     --cluster ${CLUSTER_NAME} \
-    --attach-policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/fluent-bit-policy" \
+    --attach-policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${FLUENT_BIT_POLICY}" \
     --approve \
     --override-existing-serviceaccounts
 
@@ -525,10 +546,11 @@ curl -sS -u "${ES_DOMAIN_USER}:${ES_DOMAIN_PASSWORD}" \
 # [ 4. Fluent bit 설치 ]
 #   - 작업경로 : 08.LOGGING
 ################################################
-# 설치
+# 배포 파일 다운로드
 curl -Ss https://www.eksworkshop.com/intermediate/230_logging/deploy.files/fluentbit.yaml \
     | envsubst > ./logging/fluentbit.yaml
 
+# fluentbit.yaml.edit 파일 참고해서 수정 후 배포
 kubectl apply -f ./logging/fluentbit.yaml
 
 # 확인 ( daemonset으로 각 노드에 1개씩 잘 뜨는지 확인 )
@@ -559,6 +581,8 @@ export ES_DOMAIN_NAME="eks-skcc07715-logging"
 export ES_VERSION="7.4"
 export ES_DOMAIN_USER="admin"
 export ES_DOMAIN_PASSWORD="Sktngm12#$"
+export FLUENT_BIT_POLICY="${CLUSTER_NAME}-fluent-bit-policy"
+
 
 # fluentbit 삭제
 kubectl delete -f ./logging/fluentbit.yaml
@@ -576,7 +600,7 @@ eksctl delete iamserviceaccount \
 
 # iam policy 삭제
 aws iam delete-policy   \
-  --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/fluent-bit-policy"
+  --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${FLUENT_BIT_POLICY}"
 
 # logging namespace 삭제
 kubectl delete namespace logging
